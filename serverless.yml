@@ -17,9 +17,7 @@ provider:
 
 custom:
   customDomain:
-    domainName: serverless.didomi.com
-    stage: ci
-    basePath: api
+    domainName: poc.didomi.com
     certificateName: '*.didomi.com'
     createRoute53Record: true
     endpointType: 'regional'
@@ -130,10 +128,6 @@ resources:
             Resource: !GetAtt CloudformationPolicy.Arn
           - Effect: Allow
             Action:
-            - iam:PassRole
-            Resource: ARN_OF_YOUR_LAMBDA_FUNCTION_ROLE
-          - Effect: Allow
-            Action:
             - s3:*
             Resource:
             - poc-didomi-serverless-deployments-${AWS::Region}*
@@ -143,19 +137,19 @@ resources:
             - s3:ListAllMyBuckets
             - s3:CreateBucket
             Resource: "*"
-            - Effect: Allow
-              Action:
-                - cloudformation:CreateStack
-                - cloudformation:UpdateStack
-                - cloudformation:DeleteStack
-              Resource: 
-                - !Sub 'arn:aws:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/poc-didomi/*'
-            - Effect: Allow
-              Action:
-                - cloudformation:Describe*
-                - cloudformation:List*
-                - cloudformation:Get*
-                - cloudformation:PreviewStackUpdate
-                - cloudformation:ValidateTemplate
-              Resource: 
-                - '*'
+          - Effect: Allow
+            Action:
+              - cloudformation:CreateStack
+              - cloudformation:UpdateStack
+              - cloudformation:DeleteStack
+            Resource: 
+              - !Sub 'arn:aws:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/poc-didomi/*'
+          - Effect: Allow
+            Action:
+              - cloudformation:Describe*
+              - cloudformation:List*
+              - cloudformation:Get*
+              - cloudformation:PreviewStackUpdate
+              - cloudformation:ValidateTemplate
+            Resource: 
+              - '*'
