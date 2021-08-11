@@ -1,0 +1,161 @@
+service: poc-didomi
+
+provider:
+  name: aws
+  region: ${opt:region, 'eu-west-1'}
+  stage: ${opt:stage, 'staging'}
+  timeout: 60
+  runtime: python3.6
+  deploymentBucket:
+    name: poc-didomi-serverless-deployments-${self:provider.region}
+    serverSideEncryption: AES256
+  stackTags:
+    Owner: Chris Belfield
+    service: poc-didomi
+    env: ${opt:stage}
+  logRetentionInDays: 14
+
+custom:
+  customDomain:
+    domainName: serverless.didomi.com
+    stage: ci
+    basePath: api
+    certificateName: '*.didomi.com'
+    createRoute53Record: true
+    endpointType: 'regional'
+  deploymentBucket:
+    blockPublicAccess: true
+    tags:
+      - Key: Owner
+        Value: Chris Belfield
+      - Key: service
+        Value: poc-didomi
+      - Key: env
+        Value: ${opt:stage}
+
+plugins:
+  - serverless-deployment-bucket
+  - serverless-domain-manager
+
+
+functions:
+  test:
+    handler: handler.endpoint
+    events:
+      - http:
+          path: /
+          method: get
+
+# https://dav009.medium.com/serverless-framework-minimal-iam-role-permissions-ba34bec0154e
+# https://github.com/amplify-education/serverless-domain-manager/blob/master/scripts/cloudformation/serverless-domain-manager-deploy-policy.yaml
+
+resources:
+  Resources:
+    GitLabUser:
+      Type: AWS::IAM::User
+      Properties: 
+        ManagedPolicyArns: 
+          - !GetAtt ServerlessDomainManagerDeployPolicy.Arn
+          - !GetAtt MinimalDeploymentPolicy.Arn
+          - !GetAtt CloudformationPolicy.Arn
+        UserName: GitLabUser
+
+    ServerlessDomainManagerDeployPolicy:
+      Type: "AWS::IAM::ManagedPolicy"
+      Properties:
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - apigateway:POST
+              Resource: !Sub arn:aws:apigateway:${AWS::Region}::/domainnames
+            - Effect: Allow
+              Action:
+                - apigateway:GET
+                - apigateway:DELETE
+              Resource: !Sub arn:aws:apigateway:${AWS::Region}::/domainnames/*
+            - Effect: Allow
+              Action:
+                - apigateway:PATCH
+                - apigateway:POST
+              Resource:
+                - !Sub arn:aws:apigateway:${AWS::Region}::/domainnames/*/basepathmappings
+                - !Sub arn:aws:apigateway:${AWS::Region}::/domainnames/*/basepathmappings/*
+            - Effect: Allow
+              Action:
+                - cloudfront:UpdateDistribution
+              Resource: '*'
+            - Effect: Allow
+              Action:
+                - route53:ListHostedZones
+              Resource: '*'
+            - Effect: Allow
+              Action:
+                - acm:ListCertificates
+              Resource: '*'
+            - Effect: Allow
+              Action:
+                - route53:ChangeResourceRecordSets
+                - route53:GetHostedZone
+                - route53:ListResourceRecordSets
+              Resource: !Sub arn:aws:route53:::hostedzone/${HostedZoneId}
+            - Effect: Allow
+              Action:
+                - iam:CreateServiceLinkedRole
+              Resource:
+                - !Sub arn:aws:iam::${AWS::AccountId}:role/aws-service-role/ops.apigateway.amazonaws.com/AWSServiceRoleForAPIGateway
+
+    CloudformationPolicy:
+      Type: "AWS::IAM::Policy"
+      Properties:
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+              - cloudformation.amazonaws.com
+            Action: sts:AssumeRole
+
+    MinimalDeploymentPolicy:
+      Type: "AWS::IAM::Policy"
+      Properties:
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action:
+            - iam:PassRole
+            Resource: !GetAtt CloudformationPolicy.Arn
+          - Effect: Allow
+            Action:
+            - iam:PassRole
+            Resource: ARN_OF_YOUR_LAMBDA_FUNCTION_ROLE
+          - Effect: Allow
+            Action:
+            - s3:*
+            Resource:
+            - poc-didomi-serverless-deployments-${AWS::Region}*
+            - poc-didomi-serverless-deployments-${AWS::Region}
+          - Effect: Allow
+            Action:
+            - s3:ListAllMyBuckets
+            - s3:CreateBucket
+            Resource: "*"
+            - Effect: Allow
+              Action:
+                - cloudformation:CreateStack
+                - cloudformation:UpdateStack
+                - cloudformation:DeleteStack
+              Resource: 
+                - !Sub 'arn:aws:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/poc-didomi/*'
+            - Effect: Allow
+              Action:
+                - cloudformation:Describe*
+                - cloudformation:List*
+                - cloudformation:Get*
+                - cloudformation:PreviewStackUpdate
+                - cloudformation:ValidateTemplate
+              Resource: 
+                - '*'
