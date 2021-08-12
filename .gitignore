@@ -1,2 +1,6 @@
 .vscode
 .DS_Store
+.serverless
+node_modules
+package-lock.json
+package.json

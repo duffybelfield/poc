@@ -6,6 +6,8 @@ terraform {
   }
 }
 
+# Centralising terraform state on a seperate managed s3 bucket that uses a global KMS key for encryption
+
 terraform {
   backend "s3" {
     bucket         = "tfstate-eu-central-1-poc"
@@ -18,6 +20,8 @@ terraform {
 provider "aws" {
   region = local.region
 }
+
+# Setting some default values
 
 locals {
   name   = "poc-didomi"
@@ -32,18 +36,32 @@ data "aws_region" "current" {}
 
 
 # https://github.com/terraform-aws-modules/terraform-aws-rds/tree/master/examples/complete-postgres
+# https://github.com/terraform-aws-modules/terraform-aws-vpc/blob/v3.3.0/examples/complete-vpc/main.tf
+
+# creating the VPC without only private subnets
 
 module "vpc" {
   source  = "terraform-aws-modules/vpc/aws"
   version = "~> 2"
 
   name = local.name
-  cidr = "10.99.0.0/18"
+  cidr = "20.10.0.0/16"
 
   azs              = ["${local.region}a", "${local.region}b", "${local.region}c"]
-  database_subnets = ["10.99.7.0/24", "10.99.8.0/24", "10.99.9.0/24"]
+  database_subnets = ["20.10.21.0/24", "20.10.22.0/24", "20.10.23.0/24"]
 
-  create_database_subnet_group = true
+  create_database_subnet_group = false
+
+  # Default security group - ingress/egress rules cleared to deny all
+  manage_default_security_group  = true
+  default_security_group_ingress = []
+  default_security_group_egress  = []
+
+  # VPC Flow Logs (Cloudwatch log group and IAM role will be created)
+  enable_flow_log                      = true
+  create_flow_log_cloudwatch_log_group = true
+  create_flow_log_cloudwatch_iam_role  = true
+  flow_log_max_aggregation_interval    = 60
 
   tags = local.tags
 }
@@ -58,21 +76,19 @@ module "db" {
   engine_version       = "11.10"
   family               = "postgres11" # DB parameter group
   major_engine_version = "11"         # DB option group
-  instance_class       = "db.t3.small"
-  #instance_class       = "db.t3.large" - production
+  instance_class       = "db.t3.xlarge"
+
 
   allocated_storage     = 20
   max_allocated_storage = 100
   storage_encrypted     = false
 
-  # NOTE: Do NOT use 'user' as the value for 'username' as it throws:
-  # "Error creating DB Instance: InvalidParameterValue: MasterUsername
-  # user cannot be used as it is a reserved word used by the engine"
   name     = "completePostgresql"
   username = "complete_postgresql"
   password = "YourPwdShouldBeLongAndSecure!"
   port     = 5432
 
+  # Enabling MultiAZ for scalability and redundancy
   multi_az               = true
   subnet_ids             = module.vpc.database_subnets
   vpc_security_group_ids = [module.security_group.security_group_id]
@@ -81,14 +97,21 @@ module "db" {
   backup_window                   = "03:00-06:00"
   enabled_cloudwatch_logs_exports = ["postgresql", "upgrade"]
 
-  backup_retention_period = 0
-  skip_final_snapshot     = true
+  # Setting 30 days of back up redundancy for those "oops" moments :)
+  backup_retention_period = 30
+  skip_final_snapshot     = false
   deletion_protection     = true
 
+  # Performance insights are great for validating good code / indexes on a new deployment, metrics / alarms etc.
   performance_insights_enabled          = true
-  performance_insights_retention_period = 7
+  performance_insights_retention_period = 14
   create_monitoring_role                = true
   monitoring_interval                   = 60
+
+  # https://postgreshelp.com/postgresql-autovacuum/
+  # The purpose of autovacuum is to automate the execution of VACUUM and ANALYZE commands. 
+  # When enabled, autovacuum checks for tables that have had a large number of inserted, updated or deleted tuples 
+  # and then vacuum or analyze the table based on the threshold.
 
   parameters = [
     {
@@ -102,6 +125,8 @@ module "db" {
   ]
 
 }
+
+# Default security group for Postgres RDS with ingress of 5432 (not using a source security group)
 
 module "security_group" {
   source  = "terraform-aws-modules/security-group/aws"
@@ -125,8 +150,10 @@ module "security_group" {
   tags = local.tags
 }
 
+# Make sure we grab our terraform state / KMS key within our private VPC and not over the public endpoints
+
 module "endpoints" {
-  source = "terraform-aws-modules/vpc/aws/modules/vpc-endpoints"
+  source = "terraform-aws-modules/vpc/aws//modules/vpc-endpoints"
 
   vpc_id             = module.vpc.vpc_id
   security_group_ids = [module.security_group.security_group_id]
@@ -134,8 +161,8 @@ module "endpoints" {
   endpoints = {
     s3 = {
       # interface endpoint
-      service             = "s3"
-      tags                = { Name = "s3-vpc-endpoint" }
+      service = "s3"
+      tags    = { Name = "s3-vpc-endpoint" }
     },
     kms = {
       service             = "kms"
@@ -144,9 +171,6 @@ module "endpoints" {
     }
   }
 
-  tags = {
-    Owner       = "user"
-    Environment = "poc"
-  }
+  tags = local.tags
 }
 

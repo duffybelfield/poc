@@ -6,6 +6,8 @@ provider:
   stage: ${opt:stage, 'staging'}
   timeout: 60
   runtime: python3.6
+# serverless-deployment-bucket 
+# for centralising all serverless deployments to minimise on bucket creation 
   deploymentBucket:
     name: poc-didomi-serverless-deployments-${self:provider.region}
     serverSideEncryption: AES256
@@ -14,6 +16,8 @@ provider:
     service: poc-didomi
     env: ${opt:stage}
   logRetentionInDays: 14
+
+# serverless-domain-manager configuration
 
 custom:
   customDomain:
@@ -35,27 +39,30 @@ plugins:
   - serverless-deployment-bucket
   - serverless-domain-manager
 
-
 functions:
   test:
     handler: handler.endpoint
     events:
       - http:
           path: /
-          method: get
+          method: post
+          cors: true
 
 # https://dav009.medium.com/serverless-framework-minimal-iam-role-permissions-ba34bec0154e
 # https://github.com/amplify-education/serverless-domain-manager/blob/master/scripts/cloudformation/serverless-domain-manager-deploy-policy.yaml
 
 resources:
+
   Resources:
     GitLabUser:
       Type: AWS::IAM::User
       Properties: 
         ManagedPolicyArns: 
-          - !GetAtt ServerlessDomainManagerDeployPolicy.Arn
-          - !GetAtt MinimalDeploymentPolicy.Arn
+          - !Ref ServerlessDomainManagerDeployPolicy
+          - !Ref MinimalDeploymentPolicy
         UserName: GitLabUser
+
+  # I prefer to use customer managed policies so that if needed I can re-use them on another principal entity
 
     ServerlessDomainManagerDeployPolicy:
       Type: "AWS::IAM::ManagedPolicy"
@@ -96,7 +103,8 @@ resources:
                 - route53:ChangeResourceRecordSets
                 - route53:GetHostedZone
                 - route53:ListResourceRecordSets
-              Resource: !Sub arn:aws:route53:::hostedzone/${HostedZoneId}
+              # we could get more granular here for the specific hosted zone as a parameter, but for the poc I've left it.
+              Resource: !Sub arn:aws:route53:::hostedzone/*
             - Effect: Allow
               Action:
                 - iam:CreateServiceLinkedRole
@@ -114,8 +122,8 @@ resources:
             Action:
             - s3:*
             Resource:
-            - poc-didomi-serverless-deployments-${AWS::Region}/*
-            - poc-didomi-serverless-deployments-${AWS::Region}/
+            - arn:aws:s3:::poc-didomi-serverless-deployments-${AWS::Region}/*
+            - arn:aws:s3:::poc-didomi-serverless-deployments-${AWS::Region}/
           - Effect: Allow
             Action:
             - s3:ListAllMyBuckets
