@@ -59,7 +59,7 @@ module "db" {
   family               = "postgres11" # DB parameter group
   major_engine_version = "11"         # DB option group
   instance_class       = "db.t3.small"
-  #instance_class       = "db.t3.large"
+  #instance_class       = "db.t3.large" - production
 
   allocated_storage     = 20
   max_allocated_storage = 100
