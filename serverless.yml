@@ -42,6 +42,8 @@ plugins:
 functions:
   test:
     handler: handler.endpoint
+    # To keep the lambda hot and ready to go
+    reservedConcurrency: 5
     events:
       - http:
           path: /
