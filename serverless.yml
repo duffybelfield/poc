@@ -44,6 +44,10 @@ functions:
     handler: handler.endpoint
     # To keep the lambda hot and ready to go
     reservedConcurrency: 5
+    memorySize: 128
+    timeout: 20
+    provisionedConcurrency: 3 # Count of provisioned lambda instances
+    reservedConcurrency: 5 # Reserved concurrency limit for this function. By default, AWS uses account concurrency limit
     events:
       - http:
           path: /
